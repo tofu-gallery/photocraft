@@ -27,8 +27,8 @@ The browser version runs entirely on the visitor's device. Open uses the browser
 Tofu cannot build Rust or WebAssembly, so `site/` holds the finished browser build, made from the upstream commit below with upstream's own packaging script:
 
 - `index.html` and `photocraft-web-boot-<hash>.js` / `photocraft-web-boot-<hash>_bg.wasm`: the page and the small module that starts the app.
-- `app/photocraft-web-<hash>.part-aa`, `app/parts.txt`, `app/photocraft-web.js`: the app's WebAssembly (25,959,125 bytes) gzipped into one part of 11,848,986 bytes, the list of parts, and the app's loader. Upstream ships the app this way so that no file comes near the 25 MiB per-file limit of static hosts.
-- `_headers`, `.htaccess`, `HOSTING.md`: upstream's sample server settings and its hosting notes (`packaging/web/README.md`). A host that does not read them is unaffected.
+- `app/photocraft-web-<hash>.part-aa.bin`, `app/parts.txt`, `app/photocraft-web.js`: the app's WebAssembly (25,959,125 bytes) gzipped into one part of 11,848,986 bytes, the list of parts, and the app's loader. Upstream ships the app this way so that no file comes near the 25 MiB per-file limit of static hosts. Upstream names the part `.part-aa`; this copy adds `.bin` (see "What Tofu changed and why").
+- `.htaccess`, `HOSTING.md`: upstream's sample Apache settings and its hosting notes (`packaging/web/README.md`). A host that does not read them is unaffected, and Tofu publishes neither. `HOSTING.md` is upstream's text, unchanged: it still names the part `.part-aa` and lists the `_headers` file this copy leaves out.
 - `README.md`, `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE`, `ATTRIBUTION.md`, `licenses/`: upstream's readme, licences and notices, and the licences of the third-party material compiled into the app.
 
 Every URL in the page is relative, so the site works at any address. The app also asks for `fonts/manifest.txt` (extra fonts a host may add); the 404 it gets is expected and changes nothing.
@@ -47,14 +47,19 @@ cp NOTICE ATTRIBUTION.md site/
 mkdir site/licenses
 cp assets/fonts/OFL-*.txt assets/icons/LICENSE-*.txt assets/dict/LICENSE-*.txt \
   crates/ui-egui/src/i18n/LICENSE-translations.txt crates/algo/data/LICENSE-libfacedetection.txt site/licenses/
+rm site/_headers
+for part in site/app/*.part-*; do mv "$part" "$part.bin"; done
+sed -i.orig 's/\.part-[a-z]*$/&.bin/' site/app/parts.txt && rm site/app/parts.txt.orig
+sed -i.orig 's/part-\[a-z\]+\$/part-[a-z]+\\.bin$/' site/.htaccess && rm site/.htaccess.orig
 ```
 
-These are the steps of upstream's CI job "web build and wasm size gate": `packaging/web/package.sh` packages the two apps that Trunk builds with the `wasm-release` profile, the `heif` feature and `wasm-opt -Oz`. The two `PHOTOCRAFT_BUILD_*` values only label the About dialog with the upstream commit and the build date. Like upstream's own web build, it does not embed the optional craft-fonts fonts. To move the pin, merge the new upstream commit into `tofu`, run the same commands and replace `site/`.
+These are the steps of upstream's CI job "web build and wasm size gate": `packaging/web/package.sh` packages the two apps that Trunk builds with the `wasm-release` profile, the `heif` feature and `wasm-opt -Oz`. The two `PHOTOCRAFT_BUILD_*` values only label the About dialog with the upstream commit and the build date. Like upstream's own web build, it does not embed the optional craft-fonts fonts. The last four lines are Tofu's: they remove `_headers`, add `.bin` to each part's name, and make `app/parts.txt` and the `.htaccess` cache rule for the parts use the new names. To move the pin, merge the new upstream commit into `tofu`, run the same commands and replace `site/`.
 
 ## What Tofu changed and why
 
 - Added `site/`, the finished browser build described above, because Tofu's hosting cannot run the Rust and WebAssembly toolchain. No upstream source file was changed.
 - Added `NOTICE`, `ATTRIBUTION.md` and `licenses/` to `site/`, so the notices and licences of everything compiled into the app travel with the site (upstream's packaging script copies only the readme and the two licence files). They are the files upstream's `Dockerfile` copies into its web image, plus libfacedetection's BSD-3-Clause licence.
+- Removed `site/_headers` and renamed the app's one part from `app/photocraft-web-a962a9e27fde8b5d.part-aa` to `app/photocraft-web-a962a9e27fde8b5d.part-aa.bin`, changing `app/parts.txt` (which lists it) and the `.htaccess` cache rule that matches it to suit. Tofu's Free plan publishes a finished site on its static hosting only when every file is a type that hosting serves, and it refused the whole site for these two files: `_headers` has no extension (it holds header rules for Netlify and Cloudflare Pages, which Tofu's hosting does not use), and `.part-aa` is not a type it serves. `.bin` is, as `application/octet-stream`, the type the part was served with before. The part's bytes are unchanged. The boot module reads the part names from `app/parts.txt`, accepts any plain file name there, and tells gzip from WebAssembly by the first bytes it receives, so the app starts exactly as before; no code changed.
 - Rewrote this file. Its first version said the licence was Apache-2.0 alone and that this copy shipped a web build while the pin held only the Rust sources.
 
 ## Upstream
@@ -69,6 +74,11 @@ These are the steps of upstream's CI job "web build and wasm size gate": `packag
 - Trademarks: the ArtCraft name, wordmark and logos in `docs/brand/` belong to the ArtCraft Team and are not covered by the open-source licence (`docs/brand/LICENSE-brand.txt`). The site does not include those files; the app's welcome screen links to PhotoCraft's website, GitHub, Discord and ArtCraft. Do not present this copy as an ArtCraft product or as endorsed by the ArtCraft Team. Anyone who publishes a modified version must remove the ArtCraft marks and must not call it ArtCraft.
 
 ## Verification
+
+2026-10-23 (UTC), before tagging `pin/2026-10-23.2`, which removes `_headers` and adds `.bin` to the part's name:
+
+1. Tofu's check, before this change: `lane_check.mts --one tofu-gallery/photocraft tofu site`, run from Tofu's repository (it imports the branch the way Tofu's GitHub import does and asks Tofu's own predicates), printed `-> not on the static lane | refused: type×2 | build: not_vite | safety ok (0 findings)`. The two refused files were `_headers` and the `.part-aa` file.
+2. Browser: two copies of `site/`, one from before this change and one after, each made with the paths Tofu's import drops left out (`rsync -a --exclude node_modules --exclude dist --exclude build --exclude target --exclude .cache`; nothing was left out, so each copy was identical to its `site/`), were served with `python3 -I -m http.server <port> --bind 127.0.0.1 --directory <copy>` and opened in a Chromium-based browser (WebGPU available) against 127.0.0.1 only. Both reached the same ready state within about 2 seconds: the welcome screen ("Create a new document or open an existing file.") with "No document" in the status bar. In both, a 320 x 200 PNG dropped onto the page opened as a document, Ctrl+I (Invert) inverted its colours, and Ctrl+S produced `tofu-check.psd` (14,242 bytes, starting with the PSD signature `8BPS`) with "Saved tofu-check.psd" in the status bar; the download was caught in the page and never written to disk. Neither logged a console error. Every request returned 200 except the optional `fonts/manifest.txt` and the browser's own `favicon.ico` (404, expected); the copy after the change fetched `app/parts.txt` and `app/photocraft-web-a962a9e27fde8b5d.part-aa.bin` (11,848,986 bytes, `application/octet-stream`). The only console warnings are eframe's notes that the web backend ignores the window-title and theme commands.
 
 2026-10-23 (UTC), before tagging `pin/2026-10-23.1`:
 

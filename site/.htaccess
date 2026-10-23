@@ -18,7 +18,7 @@ AddType text/javascript .js
   <FilesMatch "^(photocraft-web\.js|parts\.txt)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
-  <FilesMatch "\.part-[a-z]+$">
+  <FilesMatch "\.part-[a-z]+\.bin$">
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
 </IfModule>

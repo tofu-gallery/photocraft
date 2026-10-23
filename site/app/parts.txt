@@ -1,2 +1,2 @@
 photocraft-parts 1
-photocraft-web-a962a9e27fde8b5d.part-aa
+photocraft-web-a962a9e27fde8b5d.part-aa.bin
